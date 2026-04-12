@@ -89,11 +89,11 @@ class TetrisWrapper(gym.Wrapper):
             shaped_reward += delta * 0.5
             self._prev_height_variance = variance
 
-            # Hole penalty (gentle, only on placement)
+            # Hole penalty (very gentle, only on placement)
             holes = self._count_holes(board)
             new_holes = holes - self._prev_holes
             if new_holes > 0:
-                shaped_reward -= new_holes * 0.5
+                shaped_reward -= new_holes * 0.1
             self._prev_holes = holes
 
         # Game over penalty
