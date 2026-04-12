@@ -128,7 +128,7 @@ def train(model, env, num_episodes, device):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train Tetris agent with DQN")
-    parser.add_argument("--episodes", type=int, default=2000, help="Training episodes (default: 2000)")
+    parser.add_argument("--episodes", type=int, default=5000, help="Training episodes (default: 5000)")
     parser.add_argument("--checkpoint", type=str, default=None, help="Resume from checkpoint")
     args = parser.parse_args()
 
