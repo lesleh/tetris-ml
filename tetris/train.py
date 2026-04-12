@@ -9,6 +9,7 @@ import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 import gymnasium as gym
 
@@ -51,7 +52,7 @@ def main() -> None:
 
     # Create vectorized environments
     env = SubprocVecEnv([make_env() for _ in range(args.envs)])
-    eval_env = DummyVecEnv([make_env()])
+    eval_env = DummyVecEnv([lambda: Monitor(make_env()())])
 
     policy_kwargs = {
         "features_extractor_class": TetrisCNN,
