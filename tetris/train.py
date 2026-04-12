@@ -21,10 +21,10 @@ def train(model, env, num_episodes, device):
     optimizer = Adam(model.parameters(), lr=1e-3)
     replay_buffer = deque(maxlen=30_000)
     batch_size = 512
-    gamma = 0.99
+    gamma = 0.95
     epsilon = 1.0
-    epsilon_decay = 0.999
-    epsilon_min = 0.01
+    epsilon_decay = 0.995
+    epsilon_min = 0.001
 
     best_lines = 0
     stats = []
