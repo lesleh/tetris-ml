@@ -64,8 +64,9 @@ class TetrisWrapper(gym.Wrapper):
         if lines > 0:
             shaped_reward += lines * lines * 10
 
-        # Survival bonus — primary learning signal
-        shaped_reward += 1.0
+        # Reward for placing a piece (base env gives reward=1 on lock)
+        if reward > 0:
+            shaped_reward += 1.0
 
         # Game over penalty
         if terminated:
