@@ -64,19 +64,19 @@ class TetrisWrapper(gym.Wrapper):
         if lines > 0:
             shaped_reward += lines * lines
 
-        # Hole penalty
+        # Hole penalty (gentle — only penalize new holes)
         holes = self._count_holes(board)
         new_holes = holes - self._prev_holes
         if new_holes > 0:
-            shaped_reward -= new_holes * 0.5
+            shaped_reward -= new_holes * 0.1
         self._prev_holes = holes
 
-        # Survival bonus (small)
-        shaped_reward += 0.01
+        # Survival bonus — main learning signal early on
+        shaped_reward += 0.1
 
         # Game over penalty
         if terminated:
-            shaped_reward -= 2.0
+            shaped_reward -= 5.0
 
         return board, shaped_reward, terminated, truncated, info
 
