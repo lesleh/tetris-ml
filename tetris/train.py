@@ -56,9 +56,15 @@ def main() -> None:
         "features_extractor_kwargs": {"features_dim": 256},
     }
 
+    device = "cpu"
+    if torch.backends.mps.is_available():
+        device = "mps"
+    elif torch.cuda.is_available():
+        device = "cuda"
+
     if args.checkpoint:
         print(f"Loading checkpoint: {args.checkpoint}")
-        model = PPO.load(args.checkpoint, env=env, tensorboard_log=str(TB_LOG_DIR))
+        model = PPO.load(args.checkpoint, env=env, tensorboard_log=str(TB_LOG_DIR), device=device)
     else:
         model = PPO(
             "CnnPolicy",
@@ -74,6 +80,7 @@ def main() -> None:
             ent_coef=0.01,
             verbose=1,
             tensorboard_log=str(TB_LOG_DIR),
+            device=device,
         )
 
     total_params = sum(p.numel() for p in model.policy.parameters())
