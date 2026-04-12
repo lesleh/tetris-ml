@@ -1,6 +1,8 @@
 """PPO training for Tetris using Stable Baselines3."""
 
 import argparse
+import signal
+import sys
 from pathlib import Path
 
 import torch
@@ -100,6 +102,16 @@ def main() -> None:
         n_eval_episodes=5,
         deterministic=True,
     )
+
+    def handle_interrupt(signum, frame):
+        print("\n\nInterrupted! Saving model...")
+        model.save(CHECKPOINT_DIR / "interrupted")
+        print(f"Model saved to {CHECKPOINT_DIR / 'interrupted'}")
+        env.close()
+        eval_env.close()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, handle_interrupt)
 
     model.learn(
         total_timesteps=args.timesteps,
