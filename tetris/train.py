@@ -19,7 +19,7 @@ CHECKPOINT_DIR = Path("checkpoints")
 
 
 def train(model, env, num_episodes, device):
-    optimizer = Adam(model.parameters(), lr=1e-3)
+    optimizer = Adam(model.parameters(), lr=5e-4)
     target_model = copy.deepcopy(model)
     target_model.eval()
     target_update_freq = 100  # update target network every N episodes
