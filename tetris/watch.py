@@ -39,10 +39,7 @@ def render_board(env) -> str:
         for c in range(4, 14):
             val = board[r, c]
             active = mask[r, c]
-            if active > 0:
-                color = PIECE_COLORS.get(int(active), PIECE_COLORS[7])
-                row += f"{color}{BLOCK}{RESET}"
-            elif val > 1:
+            if val > 1:
                 color = PIECE_COLORS.get(int(val), PIECE_COLORS[0])
                 row += f"{color}{BLOCK}{RESET}"
             else:
