@@ -1,130 +1,153 @@
-"""PPO training for Tetris using Stable Baselines3."""
+"""DQN training loop for Tetris with feature-based placement scoring."""
 
 import argparse
+import random
 import signal
 import sys
+from collections import deque
 from pathlib import Path
 
+import numpy as np
 import torch
-from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
-import gymnasium as gym
+from torch.optim import Adam
 
-from .env import make_env
+from .env import TetrisEngine
+from .model import TetrisMLP
 
 CHECKPOINT_DIR = Path("checkpoints")
-TB_LOG_DIR = Path("tb_logs")
 
 
-class TetrisCNN(BaseFeaturesExtractor):
-    """Small CNN for the 20x10 Tetris board."""
+def train(model, env, num_episodes, device):
+    optimizer = Adam(model.parameters(), lr=1e-3)
+    replay_buffer = deque(maxlen=30_000)
+    batch_size = 512
+    gamma = 0.99
+    epsilon = 1.0
+    epsilon_decay = 0.999
+    epsilon_min = 0.01
 
-    def __init__(self, observation_space: gym.spaces.Box, features_dim: int = 256):
-        super().__init__(observation_space, features_dim)
-        self.cnn = torch.nn.Sequential(
-            torch.nn.Conv2d(1, 32, kernel_size=3, padding=1),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(64, 64, kernel_size=3, padding=1),
-            torch.nn.ReLU(),
-            torch.nn.Flatten(),
-            torch.nn.Linear(64 * 20 * 10, features_dim),
-            torch.nn.ReLU(),
-        )
+    best_lines = 0
+    stats = []
 
-    def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        return self.cnn(observations)
+    for episode in range(1, num_episodes + 1):
+        env.reset()
+        total_reward = 0
+        total_lines = 0
+        pieces = 0
+
+        while not env.done:
+            placements = env.get_valid_placements()
+            if not placements:
+                break
+
+            # Epsilon-greedy
+            if random.random() < epsilon:
+                chosen = random.choice(placements)
+            else:
+                features = torch.tensor(
+                    [p["features"] for p in placements], dtype=torch.float32
+                ).to(device)
+                with torch.no_grad():
+                    scores = model(features).squeeze()
+                best_idx = scores.argmax().item() if scores.dim() > 0 else 0
+                chosen = placements[best_idx]
+
+            reward, done, info = env.execute_placement(chosen)
+            total_reward += reward
+            total_lines += info.get("lines_cleared", 0)
+            pieces += 1
+
+            # Get next state placements
+            next_placements = env.get_valid_placements() if not done else []
+
+            replay_buffer.append({
+                "features": chosen["features"],
+                "reward": reward,
+                "next_features": [p["features"] for p in next_placements],
+                "done": done,
+            })
+
+        # Train from replay buffer
+        if len(replay_buffer) >= batch_size:
+            batch = random.sample(list(replay_buffer), batch_size)
+
+            states = torch.tensor(
+                [b["features"] for b in batch], dtype=torch.float32
+            ).to(device)
+
+            # Compute targets
+            targets = []
+            for b in batch:
+                if b["done"] or not b["next_features"]:
+                    targets.append(b["reward"])
+                else:
+                    next_f = torch.tensor(b["next_features"], dtype=torch.float32).to(device)
+                    with torch.no_grad():
+                        next_scores = model(next_f).squeeze()
+                        best_next = next_scores.max().item() if next_scores.dim() > 0 else next_scores.item()
+                    targets.append(b["reward"] + gamma * best_next)
+
+            targets = torch.tensor(targets, dtype=torch.float32).unsqueeze(1).to(device)
+            predictions = model(states)
+            loss = torch.nn.functional.mse_loss(predictions, targets)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        epsilon = max(epsilon_min, epsilon * epsilon_decay)
+
+        stats.append({"episode": episode, "pieces": pieces, "lines": total_lines, "reward": total_reward})
+
+        if total_lines > best_lines:
+            best_lines = total_lines
+            torch.save(model.state_dict(), CHECKPOINT_DIR / "best_model.pt")
+
+        if episode % 50 == 0:
+            recent = stats[-50:]
+            avg_pieces = np.mean([s["pieces"] for s in recent])
+            avg_lines = np.mean([s["lines"] for s in recent])
+            avg_reward = np.mean([s["reward"] for s in recent])
+            print(f"Episode {episode:5d} | "
+                  f"Pieces: {avg_pieces:5.1f} | "
+                  f"Lines: {avg_lines:5.2f} | "
+                  f"Reward: {avg_reward:7.1f} | "
+                  f"Best lines: {best_lines} | "
+                  f"Epsilon: {epsilon:.3f}")
+            torch.save(model.state_dict(), CHECKPOINT_DIR / "latest.pt")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train Tetris agent with PPO")
-    parser.add_argument("--timesteps", type=int, default=2_000_000, help="Total training timesteps (default: 2M)")
-    parser.add_argument("--envs", type=int, default=8, help="Parallel environments (default: 8)")
+    parser = argparse.ArgumentParser(description="Train Tetris agent with DQN")
+    parser.add_argument("--episodes", type=int, default=2000, help="Training episodes (default: 2000)")
     parser.add_argument("--checkpoint", type=str, default=None, help="Resume from checkpoint")
     args = parser.parse_args()
 
     CHECKPOINT_DIR.mkdir(exist_ok=True)
-    TB_LOG_DIR.mkdir(exist_ok=True)
 
-    # Create vectorized environments
-    env = SubprocVecEnv([make_env() for _ in range(args.envs)])
-    eval_env = DummyVecEnv([lambda: Monitor(make_env()())])
+    device = torch.device("cpu")  # MLP is tiny, CPU is faster than GPU overhead
 
-    policy_kwargs = {
-        "features_extractor_class": TetrisCNN,
-        "features_extractor_kwargs": {"features_dim": 256},
-    }
-
-    device = "cpu"
-    if torch.backends.mps.is_available():
-        device = "mps"
-    elif torch.cuda.is_available():
-        device = "cuda"
+    model = TetrisMLP().to(device)
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Network parameters: {total_params:,}")
 
     if args.checkpoint:
-        print(f"Loading checkpoint: {args.checkpoint}")
-        model = PPO.load(args.checkpoint, env=env, tensorboard_log=str(TB_LOG_DIR), device=device)
-    else:
-        model = PPO(
-            "CnnPolicy",
-            env,
-            policy_kwargs=policy_kwargs,
-            learning_rate=3e-4,
-            n_steps=2048,
-            batch_size=64,
-            n_epochs=10,
-            gamma=0.99,
-            gae_lambda=0.95,
-            clip_range=0.2,
-            ent_coef=0.05,
-            verbose=1,
-            tensorboard_log=str(TB_LOG_DIR),
-            device=device,
-        )
+        model.load_state_dict(torch.load(args.checkpoint, map_location=device))
+        print(f"Loaded checkpoint: {args.checkpoint}")
 
-    total_params = sum(p.numel() for p in model.policy.parameters())
-    print(f"Network parameters: {total_params:,}")
-    print(f"Training for {args.timesteps:,} timesteps with {args.envs} envs")
-
-    checkpoint_callback = CheckpointCallback(
-        save_freq=50_000 // args.envs,
-        save_path=str(CHECKPOINT_DIR),
-        name_prefix="tetris",
-    )
-
-    eval_callback = EvalCallback(
-        eval_env,
-        best_model_save_path=str(CHECKPOINT_DIR),
-        eval_freq=25_000 // args.envs,
-        n_eval_episodes=5,
-        deterministic=True,
-    )
+    env = TetrisEngine()
 
     def handle_interrupt(signum, frame):
         print("\n\nInterrupted! Saving model...")
-        model.save(CHECKPOINT_DIR / "interrupted")
-        print(f"Model saved to {CHECKPOINT_DIR / 'interrupted'}")
-        env.close()
-        eval_env.close()
+        torch.save(model.state_dict(), CHECKPOINT_DIR / "interrupted.pt")
+        print(f"Saved to {CHECKPOINT_DIR / 'interrupted.pt'}")
         sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_interrupt)
 
-    model.learn(
-        total_timesteps=args.timesteps,
-        callback=[checkpoint_callback, eval_callback],
-        progress_bar=True,
-    )
-
-    model.save(CHECKPOINT_DIR / "final")
-    print(f"Training complete. Model saved to {CHECKPOINT_DIR / 'final'}")
-
-    env.close()
-    eval_env.close()
+    train(model, env, args.episodes, device)
+    torch.save(model.state_dict(), CHECKPOINT_DIR / "final.pt")
+    print(f"Training complete. Model saved to {CHECKPOINT_DIR / 'final.pt'}")
 
 
 if __name__ == "__main__":

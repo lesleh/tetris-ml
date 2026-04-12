@@ -1,121 +1,172 @@
-"""Wrapped Tetris environment with simplified action space and shaped rewards."""
+"""Tetris environment wrapper with placement enumeration and feature extraction."""
 
-import gymnasium as gym
 import numpy as np
 from tetris_gymnasium.envs.tetris import Tetris
 
 
-class TetrisWrapper(gym.Wrapper):
-    """Wraps tetris-gymnasium with:
-    - Simplified action space: 40 actions = 10 columns x 4 rotations
-    - Board observation (1, 20, 10) suitable for CNN
-    - Shaped rewards
-    """
-
-    # 40 actions: col 0-9, rotation 0-3
-    # action = col * 4 + rotation
-    NUM_ACTIONS = 40
+class TetrisEngine:
+    """Wraps tetris-gymnasium. Enumerates valid placements and computes features."""
 
     def __init__(self, render_mode=None):
-        env = Tetris(render_mode=render_mode)
-        super().__init__(env)
+        self.env = Tetris(render_mode=render_mode)
+        self._done = False
 
-        self.observation_space = gym.spaces.Box(
-            low=0, high=1, shape=(1, 20, 10), dtype=np.float32
-        )
-        self.action_space = gym.spaces.Discrete(self.NUM_ACTIONS)
+    def reset(self):
+        self.env.reset()
+        self._done = False
 
-        self._prev_holes = 0
+    @property
+    def done(self):
+        return self._done
 
-    def _extract_board(self, obs: dict) -> np.ndarray:
-        """Extract the 20x10 playfield as a binary (1, 20, 10) array, excluding active piece."""
-        board = obs["board"]
-        mask = obs["active_tetromino_mask"]
-        playfield = board[:20, 4:14]
-        active = mask[:20, 4:14]
-        # Placed pieces: board > 1 AND not the active piece
-        binary = ((playfield > 1) & (active == 0)).astype(np.float32)
-        return binary.reshape(1, 20, 10)
+    def get_board(self) -> np.ndarray:
+        """Return the 20x10 playfield (placed pieces only, no active piece)."""
+        inner = self.env.unwrapped
+        board = inner.board[:20, 4:14]
+        return (board > 1).astype(np.int8)
 
-    def _count_holes(self, board: np.ndarray) -> int:
-        """Count holes: empty cells with a filled cell anywhere above them."""
-        holes = 0
-        grid = board.squeeze()
-        for col in range(10):
-            found_block = False
-            for row in range(20):
-                if grid[row, col] > 0:
-                    found_block = True
-                elif found_block:
-                    holes += 1
-        return holes
+    def get_valid_placements(self) -> list[dict]:
+        """Enumerate all valid placements for the current piece.
 
-    def _column_heights(self, board: np.ndarray) -> np.ndarray:
-        """Get the height of each column."""
-        grid = board.squeeze()
+        Returns list of dicts with keys:
+            rotation, x, y, features (lines_cleared, holes, bumpiness, total_height)
+        """
+        inner = self.env.unwrapped
+        placements = []
+        seen = set()
+
+        tetromino = inner.active_tetromino
+        for rot in range(4):
+            if rot > 0:
+                tetromino = inner.rotate(tetromino, True)
+
+            matrix = tetromino.matrix
+            h, w = matrix.shape
+
+            for x in range(inner.width + inner.padding * 2 - w + 1):
+                # Check if piece can exist at top
+                if inner.collision(tetromino, x, 0):
+                    continue
+
+                # Drop to lowest valid y
+                y = 0
+                while not inner.collision(tetromino, x, y + 1):
+                    y += 1
+
+                # Simulate placement on board copy
+                board_copy = inner.board.copy()
+                for r in range(h):
+                    for c in range(w):
+                        if matrix[r, c] != 0:
+                            board_copy[y + r, x + c] = matrix[r, c]
+
+                # Extract playfield
+                playfield = board_copy[:20, 4:14]
+                binary = (playfield > 1).astype(np.int8)
+
+                # Deduplicate by board state
+                board_key = binary.tobytes()
+                if board_key in seen:
+                    continue
+                seen.add(board_key)
+
+                # Count cleared lines
+                lines = 0
+                cleaned = []
+                for row in range(20):
+                    if np.all(binary[row] > 0):
+                        lines += 1
+                    else:
+                        cleaned.append(binary[row])
+                if lines > 0:
+                    binary = np.zeros((20, 10), dtype=np.int8)
+                    offset = 20 - len(cleaned)
+                    for i, row in enumerate(cleaned):
+                        binary[offset + i] = row
+
+                features = self._compute_features(binary, lines)
+                placements.append({
+                    "rotation": rot,
+                    "x": x,
+                    "y": y,
+                    "features": features,
+                })
+
+        return placements
+
+    def _compute_features(self, board: np.ndarray, lines_cleared: int) -> list[float]:
+        """Compute [lines_cleared, holes, bumpiness, total_height]."""
         heights = np.zeros(10)
         for col in range(10):
             for row in range(20):
-                if grid[row, col] > 0:
+                if board[row, col] > 0:
                     heights[col] = 20 - row
                     break
-        return heights
 
-    def _execute_placement(self, target_col: int, rotation: int) -> tuple:
-        """Rotate piece and move to target column, then hard drop."""
+        holes = 0
+        for col in range(10):
+            found = False
+            for row in range(20):
+                if board[row, col] > 0:
+                    found = True
+                elif found:
+                    holes += 1
+
+        bumpiness = sum(abs(heights[i] - heights[i + 1]) for i in range(9))
+        total_height = sum(heights)
+
+        return [float(lines_cleared), float(holes), float(bumpiness), float(total_height)]
+
+    def execute_placement(self, placement: dict) -> tuple[float, bool, dict]:
+        """Execute a placement by rotating, moving, and hard dropping."""
         inner = self.env.unwrapped
         actions = inner.actions
 
-        # Apply rotations
-        for _ in range(rotation):
-            obs, _, term, trunc, info = self.env.step(actions.rotate_clockwise)
-            if term or trunc:
-                return obs, 0, term, trunc, info
+        # Rotate
+        for _ in range(placement["rotation"]):
+            self.env.step(actions.rotate_clockwise)
 
-        # Figure out current column (x position relative to playfield)
-        current_col = inner.x - 4
-
-        # Move to target column
-        moves = target_col - current_col
-        move_action = actions.move_right if moves > 0 else actions.move_left
-        for _ in range(abs(moves)):
-            obs, _, term, trunc, info = self.env.step(move_action)
-            if term or trunc:
-                return obs, 0, term, trunc, info
+        # Move to target x
+        current_x = inner.x
+        target_x = placement["x"]
+        if target_x < current_x:
+            for _ in range(current_x - target_x):
+                self.env.step(actions.move_left)
+        elif target_x > current_x:
+            for _ in range(target_x - current_x):
+                self.env.step(actions.move_right)
 
         # Hard drop
-        return self.env.step(actions.hard_drop)
-
-    def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
-        self._prev_holes = 0
-        return self._extract_board(obs), info
-
-    def step(self, action):
-        target_col = action // 4
-        rotation = action % 4
-
-        obs, reward, terminated, truncated, info = self._execute_placement(target_col, rotation)
-        board = self._extract_board(obs)
+        obs, reward, terminated, truncated, info = self.env.step(actions.hard_drop)
+        self._done = terminated or truncated
 
         lines = info.get("lines_cleared", 0)
+        shaped_reward = 1 + lines ** 2 * 10
 
-        # Keep it simple: lines cleared + survive
-        shaped_reward = 0.0
+        return shaped_reward, self._done, info
 
-        if lines > 0:
-            shaped_reward += lines * lines * 100
+    def render_board(self) -> str:
+        """Render board with ANSI colors."""
+        inner = self.env.unwrapped
+        obs = inner._get_obs()
+        board = obs["board"]
 
-        shaped_reward += 1.0
+        COLORS = {
+            0: "\033[90m", 2: "\033[36m", 3: "\033[34m", 4: "\033[33m",
+            5: "\033[93m", 6: "\033[32m", 7: "\033[35m", 8: "\033[31m",
+        }
+        RESET = "\033[0m"
+        BLOCK = "\u2588\u2588"
+        EMPTY = "\u2591\u2591"
 
-        if terminated:
-            shaped_reward -= 20.0
-
-        return board, shaped_reward, terminated, truncated, info
-
-
-def make_env(render_mode=None):
-    """Factory function for creating wrapped Tetris environments."""
-    def _init():
-        return TetrisWrapper(render_mode=render_mode)
-    return _init
+        lines = []
+        for r in range(20):
+            row = ""
+            for c in range(4, 14):
+                val = board[r, c]
+                if val > 1:
+                    row += f"{COLORS.get(int(val), COLORS[0])}{BLOCK}{RESET}"
+                else:
+                    row += f"{COLORS[0]}{EMPTY}{RESET}"
+            lines.append(row)
+        return "\n".join(lines)
