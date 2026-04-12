@@ -95,7 +95,7 @@ class TetrisEngine:
         return placements
 
     def _compute_features(self, board: np.ndarray, lines_cleared: int) -> list[float]:
-        """Compute [lines_cleared, holes, bumpiness, total_height]."""
+        """Compute [lines_cleared, holes, bumpiness, total_height, max_height]."""
         heights = np.zeros(10)
         for col in range(10):
             for row in range(20):
@@ -114,8 +114,9 @@ class TetrisEngine:
 
         bumpiness = sum(abs(heights[i] - heights[i + 1]) for i in range(9))
         total_height = sum(heights)
+        max_height = max(heights)
 
-        return [float(lines_cleared), float(holes), float(bumpiness), float(total_height)]
+        return [float(lines_cleared), float(holes), float(bumpiness), float(total_height), float(max_height)]
 
     def execute_placement(self, placement: dict) -> tuple[float, bool, dict]:
         """Execute a placement by rotating, moving, and hard dropping."""
