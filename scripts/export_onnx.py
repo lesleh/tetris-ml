@@ -3,6 +3,7 @@
 import argparse
 from pathlib import Path
 
+import onnx
 import torch
 
 from tetris.model import TetrisMLP
@@ -28,6 +29,13 @@ def main():
         output_names=["output"],
         dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
     )
+
+    # Merge external data into single file
+    data_file = Path(args.output + ".data")
+    if data_file.exists():
+        model_onnx = onnx.load(args.output, load_external_data=True)
+        onnx.save(model_onnx, args.output)
+        data_file.unlink()
 
     size = Path(args.output).stat().st_size
     print(f"Exported to {args.output} ({size} bytes)")
