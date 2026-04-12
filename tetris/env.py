@@ -84,8 +84,8 @@ class TetrisWrapper(gym.Wrapper):
             # Flatness bonus: reward low variance in column heights
             heights = self._column_heights(board)
             variance = float(np.var(heights))
-            # Small bonus for being flat, scaled so max ~1.0 for perfectly flat
-            flatness_bonus = max(0, 1.0 - variance * 0.1)
+            # Bonus for being flat, scaled so max ~5.0 for perfectly flat
+            flatness_bonus = max(0, 5.0 - variance * 0.5)
             shaped_reward += flatness_bonus
 
             # Hole penalty (very gentle, only on placement)
