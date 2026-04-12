@@ -21,6 +21,7 @@ class TetrisWrapper(gym.Wrapper):
         )
 
         self._prev_holes = 0
+        self._prev_height_variance = 0.0
 
     def _extract_board(self, obs: dict) -> np.ndarray:
         """Extract the 20x10 playfield as a binary (1, 20, 10) array."""
@@ -46,9 +47,21 @@ class TetrisWrapper(gym.Wrapper):
                     holes += 1
         return holes
 
+    def _column_heights(self, board: np.ndarray) -> np.ndarray:
+        """Get the height of each column (0 = empty, 20 = full)."""
+        grid = board.squeeze()
+        heights = np.zeros(10)
+        for col in range(10):
+            for row in range(20):
+                if grid[row, col] > 0:
+                    heights[col] = 20 - row
+                    break
+        return heights
+
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         self._prev_holes = 0
+        self._prev_height_variance = 0.0
         return self._extract_board(obs), info
 
     def step(self, action):
@@ -67,6 +80,21 @@ class TetrisWrapper(gym.Wrapper):
         # Reward for placing a piece (base env gives reward=1 on lock)
         if reward > 0:
             shaped_reward += 1.0
+
+            # Flatness bonus: reward keeping the surface even (only on piece placement)
+            heights = self._column_heights(board)
+            variance = float(np.var(heights))
+            # Reward decrease in variance (got flatter), penalize increase
+            delta = self._prev_height_variance - variance
+            shaped_reward += delta * 0.5
+            self._prev_height_variance = variance
+
+            # Hole penalty (gentle, only on placement)
+            holes = self._count_holes(board)
+            new_holes = holes - self._prev_holes
+            if new_holes > 0:
+                shaped_reward -= new_holes * 0.5
+            self._prev_holes = holes
 
         # Game over penalty
         if terminated:
