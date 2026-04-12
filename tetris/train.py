@@ -18,7 +18,7 @@ from .model import TetrisMLP
 CHECKPOINT_DIR = Path("checkpoints")
 
 
-def train(model, env, num_episodes, device):
+def train(model, env, num_episodes, device, start_epsilon=1.0):
     optimizer = Adam(model.parameters(), lr=5e-4)
     target_model = copy.deepcopy(model)
     target_model.eval()
@@ -27,7 +27,7 @@ def train(model, env, num_episodes, device):
     replay_buffer = deque(maxlen=100_000)
     batch_size = 512
     gamma = 0.95
-    epsilon = 1.0
+    epsilon = start_epsilon
     epsilon_decay = 0.998
     epsilon_min = 0.001
 
@@ -130,6 +130,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Train Tetris agent with DQN")
     parser.add_argument("--episodes", type=int, default=5000, help="Training episodes (default: 5000)")
     parser.add_argument("--checkpoint", type=str, default=None, help="Resume from checkpoint")
+    parser.add_argument("--epsilon", type=float, default=1.0, help="Starting epsilon (default: 1.0)")
     args = parser.parse_args()
 
     CHECKPOINT_DIR.mkdir(exist_ok=True)
@@ -154,7 +155,7 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, handle_interrupt)
 
-    train(model, env, args.episodes, device)
+    train(model, env, args.episodes, device, start_epsilon=args.epsilon)
     torch.save(model.state_dict(), CHECKPOINT_DIR / "final.pt")
     print(f"Training complete. Model saved to {CHECKPOINT_DIR / 'final.pt'}")
 
