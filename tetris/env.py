@@ -105,7 +105,7 @@ class TetrisWrapper(gym.Wrapper):
 
         # Lines cleared (big reward)
         if lines > 0:
-            shaped_reward += lines * lines * 10
+            shaped_reward += lines * lines * 100
 
         # Placement bonus
         shaped_reward += 1.0
@@ -125,7 +125,7 @@ class TetrisWrapper(gym.Wrapper):
 
         # Game over penalty
         if terminated:
-            shaped_reward -= 10.0
+            shaped_reward -= 50.0
 
         return board, shaped_reward, terminated, truncated, info
 
