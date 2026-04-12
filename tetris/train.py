@@ -80,7 +80,7 @@ def main() -> None:
             gamma=0.99,
             gae_lambda=0.95,
             clip_range=0.2,
-            ent_coef=0.01,
+            ent_coef=0.05,
             verbose=1,
             tensorboard_log=str(TB_LOG_DIR),
             device=device,
