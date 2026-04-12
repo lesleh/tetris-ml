@@ -1,6 +1,7 @@
-"""Watch a trained Tetris agent play with Pygame rendering."""
+"""Watch a trained Tetris agent play."""
 
 import argparse
+import os
 import time
 from pathlib import Path
 
@@ -14,7 +15,9 @@ def main() -> None:
     parser.add_argument("--checkpoint", "-c", type=str, default="checkpoints/best_model",
                         help="Path to model checkpoint")
     parser.add_argument("--episodes", "-n", type=int, default=5, help="Number of episodes")
-    parser.add_argument("--delay", "-d", type=float, default=0.05, help="Delay between steps (seconds)")
+    parser.add_argument("--delay", "-d", type=float, default=0.1, help="Delay between steps (seconds)")
+    parser.add_argument("--mode", "-m", choices=["human", "ansi"], default="human",
+                        help="Render mode (default: human/pygame)")
     args = parser.parse_args()
 
     ckpt = Path(args.checkpoint)
@@ -24,7 +27,7 @@ def main() -> None:
         return
 
     model = PPO.load(args.checkpoint)
-    env = TetrisWrapper(render_mode="human")
+    env = TetrisWrapper(render_mode=args.mode)
 
     for ep in range(args.episodes):
         obs, info = env.reset()
@@ -34,8 +37,15 @@ def main() -> None:
         while True:
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
+            env.render()
             total_reward += reward
             steps += 1
+
+            if args.mode == "ansi":
+                os.system("clear")
+                print(env.render())
+                print(f"Step: {steps}  Reward: {total_reward:.1f}")
+
             time.sleep(args.delay)
 
             if terminated or truncated:
