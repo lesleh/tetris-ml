@@ -100,32 +100,16 @@ class TetrisWrapper(gym.Wrapper):
 
         lines = info.get("lines_cleared", 0)
 
-        # Shaped reward
+        # Keep it simple: lines cleared + survive
         shaped_reward = 0.0
 
-        # Lines cleared (big reward)
         if lines > 0:
             shaped_reward += lines * lines * 100
 
-        # Placement bonus
         shaped_reward += 1.0
 
-        # Flatness bonus
-        heights = self._column_heights(board)
-        variance = float(np.var(heights))
-        flatness_bonus = max(0, 5.0 - variance * 0.5)
-        shaped_reward += flatness_bonus
-
-        # Hole penalty
-        holes = self._count_holes(board)
-        new_holes = holes - self._prev_holes
-        if new_holes > 0:
-            shaped_reward -= new_holes * 3.0
-        self._prev_holes = holes
-
-        # Game over penalty
         if terminated:
-            shaped_reward -= 50.0
+            shaped_reward -= 20.0
 
         return board, shaped_reward, terminated, truncated, info
 
