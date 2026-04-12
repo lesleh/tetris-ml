@@ -28,7 +28,7 @@ def train(model, env, num_episodes, device):
     batch_size = 512
     gamma = 0.95
     epsilon = 1.0
-    epsilon_decay = 0.995
+    epsilon_decay = 0.998
     epsilon_min = 0.001
 
     best_lines = 0
