@@ -120,7 +120,7 @@ class TetrisWrapper(gym.Wrapper):
         holes = self._count_holes(board)
         new_holes = holes - self._prev_holes
         if new_holes > 0:
-            shaped_reward -= new_holes * 0.5
+            shaped_reward -= new_holes * 3.0
         self._prev_holes = holes
 
         # Game over penalty
