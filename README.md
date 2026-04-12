@@ -21,8 +21,9 @@ For each piece, the agent enumerates every valid placement (column + rotation), 
 - **Model**: MLP with two hidden layers (128 neurons each)
 - **Parameters**: ~17,000
 - **Training**: DQN with target network, epsilon-greedy exploration, experience replay
-- **Input**: 5 board features
+- **Input**: 5 board features (lines cleared, holes, bumpiness, total height, max height)
 - **Output**: Placement score (scalar)
+- **Exported model**: ~77KB ONNX
 
 ## Setup
 
@@ -62,4 +63,6 @@ python scripts/export_onnx.py            # Export best model
 
 ## Results
 
-Best game: 2,102 lines cleared. Average: ~600+ lines per game after training.
+Best game: 3,019+ lines cleared. Average: ~800+ lines per game after training.
+
+The model uses a target network and experience replay buffer (100K) for stable training. Training takes ~30 minutes for 3000 episodes on an M4 Pro MacBook.
