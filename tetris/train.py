@@ -1,6 +1,7 @@
 """DQN training loop for Tetris with feature-based placement scoring."""
 
 import argparse
+import copy
 import random
 import signal
 import sys
@@ -19,7 +20,11 @@ CHECKPOINT_DIR = Path("checkpoints")
 
 def train(model, env, num_episodes, device):
     optimizer = Adam(model.parameters(), lr=1e-3)
-    replay_buffer = deque(maxlen=30_000)
+    target_model = copy.deepcopy(model)
+    target_model.eval()
+    target_update_freq = 100  # update target network every N episodes
+
+    replay_buffer = deque(maxlen=100_000)
     batch_size = 512
     gamma = 0.95
     epsilon = 1.0
@@ -75,7 +80,7 @@ def train(model, env, num_episodes, device):
                 [b["features"] for b in batch], dtype=torch.float32
             ).to(device)
 
-            # Compute targets
+            # Compute targets using target network (stable)
             targets = []
             for b in batch:
                 if b["done"] or not b["next_features"]:
@@ -83,7 +88,7 @@ def train(model, env, num_episodes, device):
                 else:
                     next_f = torch.tensor(b["next_features"], dtype=torch.float32).to(device)
                     with torch.no_grad():
-                        next_scores = model(next_f).squeeze()
+                        next_scores = target_model(next_f).squeeze()
                         best_next = next_scores.max().item() if next_scores.dim() > 0 else next_scores.item()
                     targets.append(b["reward"] + gamma * best_next)
 
@@ -94,6 +99,10 @@ def train(model, env, num_episodes, device):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+
+        # Update target network periodically
+        if episode % target_update_freq == 0:
+            target_model.load_state_dict(model.state_dict())
 
         epsilon = max(epsilon_min, epsilon * epsilon_decay)
 
@@ -125,14 +134,14 @@ def main() -> None:
 
     CHECKPOINT_DIR.mkdir(exist_ok=True)
 
-    device = torch.device("cpu")  # MLP is tiny, CPU is faster than GPU overhead
+    device = torch.device("cpu")
 
     model = TetrisMLP().to(device)
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Network parameters: {total_params:,}")
 
     if args.checkpoint:
-        model.load_state_dict(torch.load(args.checkpoint, map_location=device))
+        model.load_state_dict(torch.load(args.checkpoint, map_location=device, weights_only=True))
         print(f"Loaded checkpoint: {args.checkpoint}")
 
     env = TetrisEngine()
