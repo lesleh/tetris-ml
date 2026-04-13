@@ -144,6 +144,9 @@ class TetrisEngine:
 
         lines = info.get("lines_cleared", 0)
         shaped_reward = 1 + lines ** 2 * 10
+        # Penalize game over heavily so model plays conservatively
+        if self._done:
+            shaped_reward -= 200
 
         return shaped_reward, self._done, info
 
