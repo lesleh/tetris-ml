@@ -19,7 +19,7 @@ def main():
     model.load_state_dict(torch.load(args.checkpoint, map_location="cpu", weights_only=True))
     model.eval()
 
-    dummy = torch.randn(1, 6)
+    dummy = torch.randn(1, 7)
 
     torch.onnx.export(
         model,
