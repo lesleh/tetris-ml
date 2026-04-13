@@ -116,7 +116,8 @@ class TetrisEngine:
         total_height = sum(heights)
         max_height = max(heights)
 
-        return [float(lines_cleared), float(holes), float(bumpiness), float(total_height), float(max_height)]
+        height_diff = max(heights) - min(heights)
+        return [float(lines_cleared), float(holes), float(bumpiness), float(total_height), float(max_height), float(height_diff)]
 
     def execute_placement(self, placement: dict) -> tuple[float, bool, dict]:
         """Execute a placement by rotating, moving, and hard dropping."""
