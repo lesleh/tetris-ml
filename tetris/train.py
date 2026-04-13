@@ -42,7 +42,7 @@ def train(model, env, num_episodes, device, start_epsilon=1.0):
 
         while not env.done:
             placements = env.get_valid_placements()
-            if not placements or pieces >= 5000:
+            if not placements or pieces >= 1000:
                 break
 
             # Epsilon-greedy
