@@ -25,26 +25,26 @@ class TetrisEngine:
         board = inner.board[:20, 4:14]
         return (board > 1).astype(np.int8)
 
-    def _enumerate_placements(self, tetromino) -> list[dict]:
-        """Enumerate all valid placements for a given tetromino."""
+    def get_valid_placements(self) -> list[dict]:
+        """Enumerate all valid placements for the current piece."""
         inner = self.env.unwrapped
         placements = []
         seen = set()
 
-        current = tetromino
+        tetromino = inner.active_tetromino
         for rot in range(4):
             if rot > 0:
-                current = inner.rotate(current, True)
+                tetromino = inner.rotate(tetromino, True)
 
-            matrix = current.matrix
+            matrix = tetromino.matrix
             h, w = matrix.shape
 
             for x in range(inner.width + inner.padding * 2 - w + 1):
-                if inner.collision(current, x, 0):
+                if inner.collision(tetromino, x, 0):
                     continue
 
                 y = 0
-                while not inner.collision(current, x, y + 1):
+                while not inner.collision(tetromino, x, y + 1):
                     y += 1
 
                 board_copy = inner.board.copy()
@@ -80,37 +80,12 @@ class TetrisEngine:
                     "x": x,
                     "y": y,
                     "features": features,
-                    "swap": False,
                 })
 
         return placements
 
-    def get_valid_placements(self) -> list[dict]:
-        """Enumerate placements for current piece and held piece (via swap)."""
-        inner = self.env.unwrapped
-
-        # Current piece placements
-        placements = self._enumerate_placements(inner.active_tetromino)
-
-        # Held piece placements (if swap is available)
-        try:
-            held = inner.holder.tetromino
-            if held is not None:
-                swap_placements = self._enumerate_placements(held)
-                for p in swap_placements:
-                    p["swap"] = True
-                placements.extend(swap_placements)
-            else:
-                # No held piece yet — swapping takes from queue
-                # We can't easily simulate this without stepping, so skip
-                pass
-        except (AttributeError, TypeError):
-            pass
-
-        return placements
-
     def _compute_features(self, board: np.ndarray, lines_cleared: int) -> list[float]:
-        """Compute 7 features."""
+        """Compute 6 features."""
         heights = np.zeros(10)
         for col in range(10):
             for row in range(20):
@@ -131,20 +106,14 @@ class TetrisEngine:
         total_height = sum(heights)
         max_height = max(heights)
         height_diff = max(heights) - min(heights)
-        half_max = max_height / 2
-        low_columns = sum(1 for h in heights if h < half_max)
 
         return [float(lines_cleared), float(holes), float(bumpiness), float(total_height),
-                float(max_height), float(height_diff), float(low_columns)]
+                float(max_height), float(height_diff)]
 
     def execute_placement(self, placement: dict) -> tuple[float, bool, dict]:
-        """Execute a placement by optionally swapping, rotating, moving, and hard dropping."""
+        """Execute a placement by rotating, moving, and hard dropping."""
         inner = self.env.unwrapped
         actions = inner.actions
-
-        # Swap if needed
-        if placement.get("swap"):
-            self.env.step(actions.swap)
 
         # Rotate
         for _ in range(placement["rotation"]):
@@ -165,7 +134,7 @@ class TetrisEngine:
         self._done = terminated or truncated
 
         lines = info.get("lines_cleared", 0)
-        shaped_reward = 1 + lines ** 2 * 10
+        shaped_reward = 1 + lines * 10
 
         return shaped_reward, self._done, info
 
