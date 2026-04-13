@@ -144,9 +144,21 @@ class TetrisEngine:
 
         lines = info.get("lines_cleared", 0)
         shaped_reward = 1 + lines ** 2 * 10
-        # Penalize game over heavily so model plays conservatively
+
         if self._done:
-            shaped_reward -= 200
+            # Check if death was caused by a well (large height difference)
+            board = self.get_board()
+            heights = np.zeros(10)
+            for col in range(10):
+                for row in range(20):
+                    if board[row, col] > 0:
+                        heights[col] = 20 - row
+                        break
+            well_depth = max(heights) - min(heights)
+            if well_depth >= 4:
+                shaped_reward -= 200  # Died with a well — heavily penalize
+            else:
+                shaped_reward -= 20   # Normal death
 
         return shaped_reward, self._done, info
 
