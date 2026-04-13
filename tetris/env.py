@@ -14,7 +14,7 @@ class TetrisEngine:
     def reset(self):
         self.env.reset()
         self._done = False
-        self._total_reward = 0
+        self._prev_holes = 0
 
     @property
     def done(self):
@@ -137,10 +137,21 @@ class TetrisEngine:
 
         lines = info.get("lines_cleared", 0)
         shaped_reward = 1 + lines * 10
-        self._total_reward += shaped_reward
 
-        if self._done:
-            shaped_reward -= self._total_reward * 0.1
+        # Penalize creating new holes
+        board = self.get_board()
+        holes = 0
+        for col in range(10):
+            found = False
+            for row in range(20):
+                if board[row, col] > 0:
+                    found = True
+                elif found:
+                    holes += 1
+        new_holes = holes - self._prev_holes
+        if new_holes > 0:
+            shaped_reward -= new_holes * 2
+        self._prev_holes = holes
 
         return shaped_reward, self._done, info
 
