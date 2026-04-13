@@ -25,52 +25,42 @@ class TetrisEngine:
         board = inner.board[:20, 4:14]
         return (board > 1).astype(np.int8)
 
-    def get_valid_placements(self) -> list[dict]:
-        """Enumerate all valid placements for the current piece.
-
-        Returns list of dicts with keys:
-            rotation, x, y, features (lines_cleared, holes, bumpiness, total_height)
-        """
+    def _enumerate_placements(self, tetromino) -> list[dict]:
+        """Enumerate all valid placements for a given tetromino."""
         inner = self.env.unwrapped
         placements = []
         seen = set()
 
-        tetromino = inner.active_tetromino
+        current = tetromino
         for rot in range(4):
             if rot > 0:
-                tetromino = inner.rotate(tetromino, True)
+                current = inner.rotate(current, True)
 
-            matrix = tetromino.matrix
+            matrix = current.matrix
             h, w = matrix.shape
 
             for x in range(inner.width + inner.padding * 2 - w + 1):
-                # Check if piece can exist at top
-                if inner.collision(tetromino, x, 0):
+                if inner.collision(current, x, 0):
                     continue
 
-                # Drop to lowest valid y
                 y = 0
-                while not inner.collision(tetromino, x, y + 1):
+                while not inner.collision(current, x, y + 1):
                     y += 1
 
-                # Simulate placement on board copy
                 board_copy = inner.board.copy()
                 for r in range(h):
                     for c in range(w):
                         if matrix[r, c] != 0:
                             board_copy[y + r, x + c] = matrix[r, c]
 
-                # Extract playfield
                 playfield = board_copy[:20, 4:14]
                 binary = (playfield > 1).astype(np.int8)
 
-                # Deduplicate by board state
                 board_key = binary.tobytes()
                 if board_key in seen:
                     continue
                 seen.add(board_key)
 
-                # Count cleared lines
                 lines = 0
                 cleaned = []
                 for row in range(20):
@@ -90,12 +80,37 @@ class TetrisEngine:
                     "x": x,
                     "y": y,
                     "features": features,
+                    "swap": False,
                 })
 
         return placements
 
+    def get_valid_placements(self) -> list[dict]:
+        """Enumerate placements for current piece and held piece (via swap)."""
+        inner = self.env.unwrapped
+
+        # Current piece placements
+        placements = self._enumerate_placements(inner.active_tetromino)
+
+        # Held piece placements (if swap is available)
+        try:
+            held = inner.holder.tetromino
+            if held is not None:
+                swap_placements = self._enumerate_placements(held)
+                for p in swap_placements:
+                    p["swap"] = True
+                placements.extend(swap_placements)
+            else:
+                # No held piece yet — swapping takes from queue
+                # We can't easily simulate this without stepping, so skip
+                pass
+        except (AttributeError, TypeError):
+            pass
+
+        return placements
+
     def _compute_features(self, board: np.ndarray, lines_cleared: int) -> list[float]:
-        """Compute [lines_cleared, holes, bumpiness, total_height, max_height]."""
+        """Compute 7 features."""
         heights = np.zeros(10)
         for col in range(10):
             for row in range(20):
@@ -115,14 +130,21 @@ class TetrisEngine:
         bumpiness = sum(abs(heights[i] - heights[i + 1]) for i in range(9))
         total_height = sum(heights)
         max_height = max(heights)
-
         height_diff = max(heights) - min(heights)
-        return [float(lines_cleared), float(holes), float(bumpiness), float(total_height), float(max_height), float(height_diff)]
+        half_max = max_height / 2
+        low_columns = sum(1 for h in heights if h < half_max)
+
+        return [float(lines_cleared), float(holes), float(bumpiness), float(total_height),
+                float(max_height), float(height_diff), float(low_columns)]
 
     def execute_placement(self, placement: dict) -> tuple[float, bool, dict]:
-        """Execute a placement by rotating, moving, and hard dropping."""
+        """Execute a placement by optionally swapping, rotating, moving, and hard dropping."""
         inner = self.env.unwrapped
         actions = inner.actions
+
+        # Swap if needed
+        if placement.get("swap"):
+            self.env.step(actions.swap)
 
         # Rotate
         for _ in range(placement["rotation"]):

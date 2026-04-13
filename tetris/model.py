@@ -8,7 +8,7 @@ class TetrisMLP(nn.Module):
     def __init__(self):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(6, 128),
+            nn.Linear(7, 128),
             nn.ReLU(),
             nn.Linear(128, 128),
             nn.ReLU(),
