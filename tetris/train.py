@@ -33,6 +33,8 @@ def train(model, env, num_episodes, device, start_epsilon=1.0):
 
     best_lines = 0
     stats = []
+    import time
+    batch_start = time.time()
 
     for episode in range(1, num_episodes + 1):
         env.reset()
@@ -113,6 +115,7 @@ def train(model, env, num_episodes, device, start_epsilon=1.0):
             torch.save(model.state_dict(), CHECKPOINT_DIR / "best_model.pt")
 
         if episode % 50 == 0:
+            elapsed = time.time() - batch_start
             recent = stats[-50:]
             avg_pieces = np.mean([s["pieces"] for s in recent])
             avg_lines = np.mean([s["lines"] for s in recent])
@@ -122,7 +125,9 @@ def train(model, env, num_episodes, device, start_epsilon=1.0):
                   f"Lines: {avg_lines:5.2f} | "
                   f"Reward: {avg_reward:7.1f} | "
                   f"Best lines: {best_lines} | "
-                  f"Epsilon: {epsilon:.3f}")
+                  f"Epsilon: {epsilon:.3f} | "
+                  f"Time: {elapsed:.0f}s")
+            batch_start = time.time()
             torch.save(model.state_dict(), CHECKPOINT_DIR / "latest.pt")
 
 
