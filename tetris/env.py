@@ -145,21 +145,6 @@ class TetrisEngine:
         lines = info.get("lines_cleared", 0)
         shaped_reward = 1 + lines ** 2 * 10
 
-        # Per-placement well penalty: escalates with depth
-        board = self.get_board()
-        heights = np.zeros(10)
-        for col in range(10):
-            for row in range(20):
-                if board[row, col] > 0:
-                    heights[col] = 20 - row
-                    break
-        well_depth = max(heights) - min(heights)
-        if well_depth > 3:
-            shaped_reward -= (well_depth - 3) ** 2 * 0.5
-
-        if self._done:
-            shaped_reward -= 20
-
         return shaped_reward, self._done, info
 
     def render_board(self) -> str:
