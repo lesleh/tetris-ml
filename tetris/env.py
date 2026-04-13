@@ -14,6 +14,7 @@ class TetrisEngine:
     def reset(self):
         self.env.reset()
         self._done = False
+        self._total_reward = 0
 
     @property
     def done(self):
@@ -136,6 +137,10 @@ class TetrisEngine:
 
         lines = info.get("lines_cleared", 0)
         shaped_reward = 1 + lines * 10
+        self._total_reward += shaped_reward
+
+        if self._done:
+            shaped_reward -= self._total_reward * 0.1
 
         return shaped_reward, self._done, info
 
