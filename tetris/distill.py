@@ -74,8 +74,9 @@ def generate_training_data(mlp: TetrisMLP, num_games: int, device: str = "cpu") 
             env.execute_placement(placements[best_idx])
             pieces += 1
 
-        if (g + 1) % 10 == 0:
-            print(f"  Generated {g + 1}/{num_games} games, {len(data)} samples")
+        lines = sum(1 for _ in range(20) if False)  # placeholder
+        if (g + 1) % 5 == 0 or g == 0:
+            print(f"  Game {g + 1}/{num_games} | {pieces} pieces | {len(data)} samples total")
 
     return data
 
@@ -111,8 +112,7 @@ def train_cnn_supervised(cnn: TetrisCNN, data: list, device: str, epochs: int = 
             batches += 1
 
         avg_loss = total_loss / batches
-        if epoch % 5 == 0:
-            print(f"  Epoch {epoch:3d}/{epochs} | Loss: {avg_loss:.4f}")
+        print(f"  Epoch {epoch:3d}/{epochs} | Loss: {avg_loss:.4f}")
 
     return avg_loss
 
