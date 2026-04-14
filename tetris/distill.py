@@ -136,20 +136,70 @@ def main() -> None:
     mlp.eval()
     print(f"Loaded MLP from {args.mlp_checkpoint}")
 
-    # Generate training data
-    print(f"\nGenerating training data from {args.games} games...")
-    data = generate_training_data(mlp, args.games)
+    # Generate training data (interruptible)
+    data = []
+    interrupted = False
+
+    def handle_interrupt(signum, frame):
+        nonlocal interrupted
+        if interrupted:
+            sys.exit(1)
+        interrupted = True
+        print(f"\n\nInterrupted! Training on {len(data)} samples collected so far...")
+
+    signal.signal(signal.SIGINT, handle_interrupt)
+
+    print(f"\nGenerating training data from {args.games} games (ctrl+c to stop early and train)...")
+    for g in range(args.games):
+        if interrupted:
+            break
+        env = TetrisEngine()
+        env.reset()
+        pieces = 0
+        use_c = board_sim.is_available()
+
+        while not env.done and pieces < 2000:
+            inner = env.env.unwrapped
+            placements = env.get_valid_placements()
+            if not placements:
+                break
+
+            features = torch.tensor([p["features"] for p in placements], dtype=torch.float32)
+            with torch.no_grad():
+                mlp_scores = mlp(features).squeeze()
+
+            if use_c:
+                playfield = (inner.board[:20, 4:14] > 1).astype(np.int8)
+                piece_matrix = inner.active_tetromino.matrix.astype(np.uint8)
+                boards_arr, meta, count = board_sim.enumerate_all(playfield, piece_matrix)
+                boards = boards_arr[:count].astype(np.float32).reshape(count, 1, 20, 10)
+            else:
+                from .train_cnn import simulate_placement
+                boards = np.array([simulate_placement(env, p) for p in placements], dtype=np.float32)
+                count = len(placements)
+
+            for i in range(min(len(placements), count)):
+                score = mlp_scores[i].item() if mlp_scores.dim() > 0 else mlp_scores.item()
+                data.append((boards[i], score))
+
+            best_idx = mlp_scores.argmax().item() if mlp_scores.dim() > 0 else 0
+            env.execute_placement(placements[best_idx])
+            pieces += 1
+
+        if (g + 1) % 5 == 0 or g == 0:
+            print(f"  Game {g + 1}/{args.games} | {pieces} pieces | {len(data)} samples total")
+
     print(f"Total samples: {len(data)}")
+
+    if len(data) < 1000:
+        print("Not enough data to train. Run more games.")
+        return
 
     # Train CNN
     cnn = TetrisCNN().to(device)
     print(f"\nCNN parameters: {sum(p.numel() for p in cnn.parameters()):,}")
 
-    def handle_interrupt(signum, frame):
-        print("\n\nInterrupted! Saving...")
-        torch.save(cnn.state_dict(), CHECKPOINT_DIR / "distilled.pt")
-        sys.exit(0)
-    signal.signal(signal.SIGINT, handle_interrupt)
+    interrupted = False
 
     train_cnn_supervised(cnn, data, device, epochs=args.epochs)
 
