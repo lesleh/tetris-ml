@@ -65,7 +65,7 @@ def simulate_placement(env: TetrisEngine, placement: dict) -> np.ndarray:
     return result.reshape(1, 20, 10)
 
 
-def train(model, env, num_episodes, device):
+def train(model, env, num_episodes, device, start_epsilon=1.0):
     optimizer = Adam(model.parameters(), lr=1e-3)
     target_model = copy.deepcopy(model)
     target_model.eval()
@@ -74,7 +74,7 @@ def train(model, env, num_episodes, device):
     replay_buffer = deque(maxlen=50_000)
     batch_size = 128
     gamma = 0.95
-    epsilon = 1.0
+    epsilon = start_epsilon
     epsilon_decay = 0.999
     epsilon_min = 0.001
 
@@ -242,7 +242,7 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, handle_interrupt)
 
-    train(model, env, args.episodes, device)
+    train(model, env, args.episodes, device, start_epsilon=args.epsilon)
     torch.save(model.state_dict(), CHECKPOINT_DIR / "final.pt")
     print(f"Training complete. Model saved to {CHECKPOINT_DIR / 'final.pt'}")
 
