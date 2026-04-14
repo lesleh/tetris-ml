@@ -112,3 +112,74 @@ int find_drop_y(
     }
     return y;
 }
+
+/*
+ * Rotate a piece matrix 90 degrees clockwise.
+ * in: h*w, out: w*h (dimensions swap)
+ */
+void rotate_cw(const uint8_t *in, uint8_t *out, int h, int w) {
+    for (int r = 0; r < h; r++) {
+        for (int c = 0; c < w; c++) {
+            out[c * h + (h - 1 - r)] = in[r * w + c];
+        }
+    }
+}
+
+/*
+ * Enumerate ALL valid placements across all 4 rotations.
+ *
+ * board: 20*10 int8 playfield
+ * piece: h*w uint8 piece matrix (rotation 0)
+ * h, w: piece dimensions
+ * boards_out: buffer for resulting boards (max_out * 200 bytes)
+ * meta_out: buffer for (rotation, x, y, lines_cleared) per placement (max_out * 4 ints)
+ * max_out: max placements
+ *
+ * Returns number of placements found.
+ */
+int enumerate_all(
+    const int8_t *board,
+    const uint8_t *piece_r0,
+    int h0, int w0,
+    int8_t *boards_out,
+    int *meta_out,
+    int max_out
+) {
+    int count = 0;
+    uint8_t pieces[4][16];  /* max 4x4 piece */
+    int hs[4], ws[4];
+
+    /* Generate all 4 rotations */
+    memcpy(pieces[0], piece_r0, h0 * w0);
+    hs[0] = h0; ws[0] = w0;
+
+    for (int rot = 1; rot < 4; rot++) {
+        rotate_cw(pieces[rot - 1], pieces[rot], hs[rot - 1], ws[rot - 1]);
+        hs[rot] = ws[rot - 1];
+        ws[rot] = hs[rot - 1];
+    }
+
+    for (int rot = 0; rot < 4; rot++) {
+        int h = hs[rot], w = ws[rot];
+        uint8_t *piece = pieces[rot];
+
+        for (int x = -(w - 1); x < COLS; x++) {
+            if (check_collision(board, piece, h, w, x, 0)) continue;
+
+            int y = find_drop_y(board, piece, h, w, x);
+
+            int8_t *out = &boards_out[count * ROWS * COLS];
+            int lines = simulate_placement(board, out, piece, h, w, x, y);
+
+            meta_out[count * 4 + 0] = rot;
+            meta_out[count * 4 + 1] = x;
+            meta_out[count * 4 + 2] = y;
+            meta_out[count * 4 + 3] = lines;
+            count++;
+
+            if (count >= max_out) return count;
+        }
+    }
+
+    return count;
+}

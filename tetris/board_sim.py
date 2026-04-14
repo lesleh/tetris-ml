@@ -32,6 +32,15 @@ if _so_path.exists():
             ctypes.c_int, ctypes.c_int,
             ctypes.c_int,
         ]
+        _lib.enumerate_all.restype = ctypes.c_int
+        _lib.enumerate_all.argtypes = [
+            ctypes.POINTER(ctypes.c_int8),   # board
+            ctypes.POINTER(ctypes.c_uint8),  # piece
+            ctypes.c_int, ctypes.c_int,      # h, w
+            ctypes.POINTER(ctypes.c_int8),   # boards_out
+            ctypes.POINTER(ctypes.c_int),    # meta_out
+            ctypes.c_int,                    # max_out
+        ]
     except OSError:
         _lib = None
 
@@ -83,3 +92,38 @@ def drop_y(board: np.ndarray, piece_matrix: np.ndarray, px: int) -> int:
         piece_flat.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
         h, w, px,
     )
+
+
+MAX_PLACEMENTS = 80  # more than enough for any piece
+
+
+def enumerate_all(board: np.ndarray, piece_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray, int]:
+    """Enumerate all valid placements across 4 rotations.
+
+    board: (20, 10) int8 playfield
+    piece_matrix: (h, w) uint8 rotation-0 piece
+
+    Returns (boards, meta, count):
+        boards: (count, 20, 10) int8 resulting boards
+        meta: (count, 4) int32 — [rotation, x, y, lines_cleared]
+        count: number of valid placements
+    """
+    board_flat = np.ascontiguousarray(board.flatten(), dtype=np.int8)
+    piece_flat = np.ascontiguousarray(piece_matrix.flatten(), dtype=np.uint8)
+    h, w = piece_matrix.shape
+
+    boards_buf = np.zeros(MAX_PLACEMENTS * 200, dtype=np.int8)
+    meta_buf = np.zeros(MAX_PLACEMENTS * 4, dtype=np.int32)
+
+    count = _lib.enumerate_all(
+        board_flat.ctypes.data_as(ctypes.POINTER(ctypes.c_int8)),
+        piece_flat.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        h, w,
+        boards_buf.ctypes.data_as(ctypes.POINTER(ctypes.c_int8)),
+        meta_buf.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
+        MAX_PLACEMENTS,
+    )
+
+    boards = boards_buf[:count * 200].reshape(count, 20, 10)
+    meta = meta_buf[:count * 4].reshape(count, 4)
+    return boards, meta, count

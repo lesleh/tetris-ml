@@ -89,51 +89,64 @@ def train(model, env, num_episodes, device):
         pieces = 0
 
         while not env.done:
-            placements = env.get_valid_placements()
-            if not placements:
-                break
+            inner = env.env.unwrapped
+            playfield = (inner.board[:20, 4:14] > 1).astype(np.int8)
+            piece_matrix = inner.active_tetromino.matrix.astype(np.uint8)
 
-            # Simulate all placements to get board states
-            boards = []
-            for p in placements:
-                boards.append(simulate_placement(env, p))
+            if _use_c:
+                boards_arr, meta, count = board_sim.enumerate_all(playfield, piece_matrix)
+                if count == 0:
+                    break
+                # Convert to float32 for CNN, add channel dim
+                boards = boards_arr[:count].astype(np.float32).reshape(count, 1, 20, 10)
+            else:
+                placements = env.get_valid_placements()
+                if not placements:
+                    break
+                boards_list = [simulate_placement(env, p) for p in placements]
+                boards = np.array(boards_list, dtype=np.float32)
+                count = len(placements)
+                meta = np.array([[p["rotation"], p["x"], p["y"], 0] for p in placements], dtype=np.int32)
 
             # Epsilon-greedy
             if random.random() < epsilon:
-                chosen_idx = random.randrange(len(placements))
+                chosen_idx = random.randrange(count)
             else:
-                board_tensor = torch.tensor(np.array(boards), dtype=torch.float32).to(device)
+                board_tensor = torch.tensor(boards, dtype=torch.float32).to(device)
                 with torch.no_grad():
                     scores = model(board_tensor).squeeze()
                 chosen_idx = scores.argmax().item() if scores.dim() > 0 else 0
 
             chosen_board = boards[chosen_idx]
-            reward, done, info = env.execute_placement(placements[chosen_idx])
+
+            # Execute via env (handles game state advancement)
+            placement = {
+                "rotation": int(meta[chosen_idx, 0]),
+                "x": int(meta[chosen_idx, 1]) + 4,  # convert back to padded coords
+                "y": int(meta[chosen_idx, 2]),
+                "features": [],  # not needed for CNN
+            }
+            reward, done, info = env.execute_placement(placement)
 
             lines = info.get("lines_cleared", 0)
             shaped_reward = 1 + lines * 10
-
-            # Hole penalty
-            board = env.get_board()
-            holes = 0
-            for col in range(10):
-                found = False
-                for row in range(20):
-                    if board[row, col] > 0:
-                        found = True
-                    elif found:
-                        holes += 1
 
             total_reward += shaped_reward
             total_lines += lines
             pieces += 1
 
             # Get next state boards
-            if not done:
+            if not done and _use_c:
+                inner2 = env.env.unwrapped
+                pf2 = (inner2.board[:20, 4:14] > 1).astype(np.int8)
+                pm2 = inner2.active_tetromino.matrix.astype(np.uint8)
+                nb_arr, _, nb_count = board_sim.enumerate_all(pf2, pm2)
+                next_boards = nb_arr[:nb_count].astype(np.float32).reshape(nb_count, 1, 20, 10) if nb_count > 0 else np.array([])
+            elif not done:
                 next_placements = env.get_valid_placements()
-                next_boards = [simulate_placement(env, p) for p in next_placements] if next_placements else []
+                next_boards = np.array([simulate_placement(env, p) for p in next_placements], dtype=np.float32) if next_placements else np.array([])
             else:
-                next_boards = []
+                next_boards = np.array([])
 
             replay_buffer.append({
                 "board": chosen_board,
