@@ -150,7 +150,7 @@ class TetrisEngine:
                     holes += 1
         new_holes = holes - self._prev_holes
         if new_holes > 0:
-            shaped_reward -= new_holes * 2
+            shaped_reward -= new_holes * 8
         self._prev_holes = holes
 
         return shaped_reward, self._done, info
