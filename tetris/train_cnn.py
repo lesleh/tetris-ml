@@ -66,7 +66,7 @@ def simulate_placement(env: TetrisEngine, placement: dict) -> np.ndarray:
 
 
 def train(model, env, num_episodes, device, start_epsilon=1.0):
-    optimizer = Adam(model.parameters(), lr=1e-3)
+    optimizer = Adam(model.parameters(), lr=1e-5)
     target_model = copy.deepcopy(model)
     target_model.eval()
     target_update_freq = 100
