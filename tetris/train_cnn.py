@@ -15,33 +15,41 @@ from torch.optim import Adam
 
 from .env import TetrisEngine
 from .cnn_model import TetrisCNN
+from . import board_sim
 
 CHECKPOINT_DIR = Path("checkpoints_cnn")
 
-
-def get_board_tensor(env: TetrisEngine) -> np.ndarray:
-    """Get 20x10 binary board as (1, 20, 10) float32 array."""
-    return env.get_board().astype(np.float32).reshape(1, 20, 10)
+_use_c = board_sim.is_available()
+if _use_c:
+    print("Using C board simulation (fast)")
+else:
+    print("C board_sim not available, using Python (slow). Run 'make' to compile.")
 
 
 def simulate_placement(env: TetrisEngine, placement: dict) -> np.ndarray:
-    """Simulate a placement and return the resulting board as tensor.
-    Uses the feature computation's simulated board."""
+    """Simulate a placement and return the resulting board as (1, 20, 10) float32."""
     inner = env.env.unwrapped
     tetromino = inner.active_tetromino
     for _ in range(placement["rotation"]):
         tetromino = inner.rotate(tetromino, True)
 
     matrix = tetromino.matrix
-    h, w = matrix.shape
 
+    if _use_c:
+        # Fast C path: operate on playfield directly
+        playfield = (inner.board[:20, 4:14] > 1).astype(np.int8)
+        px = placement["x"] - 4  # convert to playfield coords
+        result, _ = board_sim.simulate(playfield, matrix.astype(np.uint8), px, placement["y"])
+        return result.astype(np.float32).reshape(1, 20, 10)
+
+    # Slow Python fallback
+    h, w = matrix.shape
     board_copy = inner.board.copy()
     for r in range(h):
         for c in range(w):
             if matrix[r, c] != 0:
                 board_copy[placement["y"] + r, placement["x"] + c] = matrix[r, c]
 
-    # Extract playfield and clear lines
     playfield = board_copy[:20, 4:14]
     binary = (playfield > 1).astype(np.float32)
 
