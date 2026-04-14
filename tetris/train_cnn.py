@@ -165,7 +165,7 @@ def train(model, env, num_episodes, device):
 
             targets = []
             for b in batch:
-                if b["done"] or not b["next_boards"]:
+                if b["done"] or len(b["next_boards"]) == 0:
                     targets.append(b["reward"])
                 else:
                     next_t = torch.tensor(
